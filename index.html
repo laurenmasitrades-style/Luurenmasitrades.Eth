@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Wallet Address Tool</title>
+  <!-- Ethers.js -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.1/dist/ethers.min.js"></script>
+  <!-- QRCode.js -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
+  <!-- CryptoJS for AES encryption -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+</head>
+<body>
+  <h2>Wallet Address Deriver & Viewer</h2>
+
+  <!-- Mnemonic/Private Key Input -->
+  <label>Enter mnemonic or private key</label><br>
+  <textarea id="input" rows="3" placeholder="Paste mnemonic (words) or hex private key here"></textarea>
+
+  <div style="margin-top:8px">
+    <label>Addresses to derive</label>
+    <input id="count" type="number" value="5" min="1" max="50" />
+    <label>Derivation path (optional)</label>
+    <input id="path" placeholder="leave blank for default (e.g. m/44'/60'/0'/0/i)" />
+  </div>
+
+  <button id="derive">Derive / View Addresses</button>
+  <button id="connectWallet">Connect Wallet (MetaMask)</button>
+
+  <div id="results" style="margin-top:12px"></div>
+  <div id="walletInfo" style="margin-top:12px"></div>
+
+  <!-- Secure Phrase Storage -->
+  <h3>Secure Mnemonic Storage</h3>
+  <textarea id="savePhrase" rows="3" placeholder="Enter mnemonic here"></textarea><br>
+  <input id="pass" type="password" placeholder="Enter password" />
+  <button id="saveLocal">Encrypt & Save</button>
+  <button id="viewLocal">Decrypt & View</button>
+  <div id="savedResult"></div>
+
+  <script>
+    // CSV Export Helper
+    function exportCSV(rows) {
+      let csvContent = rows.map(e => e.join(",")).join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "addresses.csv";
+      link.click();
+    }
+
+    // Derive Addresses Flow
+    document.getElementById('derive').onclick = async () => {
+      const input = document.getElementById('input').value.trim();
+      const count = parseInt(document.getElementById('count').value);
+      const pathBase = document.getElementById('path').value || "m/44'/60'/0'/0/";
+      const provider = ethers.getDefaultProvider("mainnet");
+
+      let results = '';
+      const rows = [["Index", "Derivation Path", "Address", "Balance (ETH)"]];
+
+      try {
+        if (input.split(' ').length > 1) {
+          const hdNode = ethers.HDNodeWallet.fromPhrase(input);
+          for (let i = 0; i < count; i++) {
+            const derived = hdNode.derivePath(pathBase + i);
+            const balance = await provider.getBalance(derived.address);
+            const ethBalance = ethers.formatEther(balance);
+
+            results += `<div>${i}: ${derived.address} — Balance: ${ethBalance} ETH<br>Path: ${pathBase + i}</div>`;
+            rows.push([i, pathBase + i, derived.address, ethBalance]);
+          }
+        } else {
+          const wallet = new ethers.Wallet(input);
+          const balance = await provider.getBalance(wallet.address);
+          const ethBalance = ethers.formatEther(balance);
+
+          results = `<div>0: ${wallet.address} — Balance: ${ethBalance} ETH<br>Path: N/A</div>`;
+          rows.push([0, "N/A", wallet.address, ethBalance]);
+        }
+      } catch (err) {
+        results = `<div style="color:red">Error: ${err.message}</div>`;
+      }
+
+      document.getElementById('results').innerHTML = results;
+      exportCSV(rows);
+    };
+
+    // MetaMask Flow
+    document.getElementById('connectWallet').onclick = async () => {
+      if (typeof window.ethereum !== "undefined") {
+        try {
+          await window.ethereum.request({ method: "eth_requestAccounts" });
+          const provider = new ethers.BrowserProvider(window.ethereum);
+          const signer = await provider.getSigner();
+          const address = await signer.getAddress();
+          const balance = await provider.getBalance(address);
+          const ethBalance = ethers.formatEther(balance);
+
+          document.getElementById('walletInfo').innerHTML =
+            `<div>Connected Wallet: ${address}</div><div>Balance: ${ethBalance} ETH</div>`;
+
+          const rows = [["Index", "Derivation Path", "Address", "Balance (ETH)"]];
+          rows.push([0, "MetaMask", address, ethBalance]);
+          exportCSV(rows);
+        } catch (err) {
+          document.getElementById('walletInfo').innerHTML =
+            `<div style="color:red">Error: ${err.message}</div>`;
+        }
+      } else {
+        alert("MetaMask not detected. Please install MetaMask extension.");
+      }
+    };
+
+    // Secure Phrase Storage
+    document.getElementById('saveLocal').onclick = () => {
+      const phrase = document.getElementById('savePhrase').value.trim();
+      const password = document.getElementById('pass').value;
+      if (phrase && password) {
+        const ciphertext = CryptoJS.AES.encrypt(phrase, password).toString();
+        localStorage.setItem('walletPhrase', ciphertext);
+        alert("Phrase encrypted and saved locally.");
+      }
+    };
+
+    document.getElementById('viewLocal').onclick = () => {
+      const password = document.getElementById('pass').value;
+      const ciphertext = localStorage.getItem('walletPhrase');
+      if (ciphertext && password) {
+        try {
+          const bytes = CryptoJS.AES.decrypt(ciphertext, password);
+          const originalPhrase = bytes.toString(CryptoJS.enc.Utf8);
+          document.getElementById('savedResult').innerText = "Decrypted phrase: " + originalPhrase;
+        } catch (err) {
+          alert("Wrong password or corrupted data.");
+        }
+      } else {
+        alert(phrase saved or password missing.");
+      }
+    };
+  </script>
+</body>
+</html>
